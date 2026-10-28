@@ -70,7 +70,7 @@ jobs:
           git -C deps/src/glib submodule update --init --recursive --depth 1
           git -C deps/src/glib apply --check "$GITHUB_WORKSPACE/custom-patches/glib-17.24.3.patch"
           git -C deps/src/glib apply "$GITHUB_WORKSPACE/custom-patches/glib-17.24.3.patch"
-          python releng/deps.py build --bundle=sdk --host=android-arm64
+          python releng/deps.py build --bundle=sdk --host=android-arm64 --verbose
           test -s deps/sdk-android-arm64.tar.xz
           python "$GITHUB_WORKSPACE/custom-patches/verify-sdk.py" deps/sdk-android-arm64.tar.xz
 
