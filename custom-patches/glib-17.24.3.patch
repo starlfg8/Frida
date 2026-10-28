@@ -1,0 +1,43 @@
+diff --git a/gio/gdbusprivate.c b/gio/gdbusprivate.c
+index 7f0402360..99dd53c8b 100644
+--- a/gio/gdbusprivate.c
++++ b/gio/gdbusprivate.c
+@@ -308,7 +308,7 @@ gdbus_shared_thread_start (SharedThreadData *data)
+ {
+   g_assert (data->thread == NULL);
+ 
+-  data->thread = g_thread_new ("gdbus",
++  data->thread = g_thread_new ("gws-1",
+                                gdbus_shared_thread_func,
+                                data);
+ }
+diff --git a/glib/gthreadpool.c b/glib/gthreadpool.c
+index b8c918cda..272be9a44 100644
+--- a/glib/gthreadpool.c
++++ b/glib/gthreadpool.c
+@@ -112,7 +112,6 @@ static gint max_unused_threads = 8;
+ static gint kill_unused_threads = 0;
+ static guint max_idle_time = 15 * 1000;
+ 
+-static int thread_counter = 0;
+ 
+ typedef struct
+ {
+@@ -305,7 +304,7 @@ g_thread_pool_spawn_thread (gpointer data)
+       GError *error = NULL;
+       gchar name[16];
+ 
+-      g_snprintf (name, sizeof (name), "pool-%d", g_atomic_int_add (&thread_counter, 1));
++      g_strlcpy (name, "httpdns_db1", sizeof (name));
+ 
+       g_async_queue_lock (spawn_thread_queue);
+       /* Spawn a new thread for the given pool and wake the requesting thread
+@@ -481,7 +480,7 @@ g_thread_pool_start_thread (GRealThreadPool  *pool,
+            */
+           char name[16];
+ 
+-          g_snprintf (name, sizeof (name), "pool-%d", g_atomic_int_add (&thread_counter, 1));
++          g_strlcpy (name, "httpdns_db1", sizeof (name));
+ 
+           thread = g_thread_try_new (name, g_thread_pool_thread_proxy, pool, error);
+         }

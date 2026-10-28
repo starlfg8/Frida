@@ -1,0 +1,98 @@
+name: Custom Frida Android arm64
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      FRIDA_VERSION: 17.24.3
+      GLIB_COMMIT: ae4ec44f4484bf22ff387e712c5e9902af07c0c7
+      ANDROID_NDK_VERSION: 29.0.14206865
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 18
+
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654
+        with:
+          java-version: '8'
+          distribution: temurin
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.14'
+
+      - name: Install build tools and Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build flex bison xz-utils git pkg-config
+          python -m pip install setuptools
+          curl -fsSL -o "$RUNNER_TEMP/android-ndk.zip" https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+          echo '87e2bb7e9be5d6a1c6cdf5ec40dd4e0c6d07c30b  '"$RUNNER_TEMP/android-ndk.zip" | sha1sum -c -
+          unzip -q "$RUNNER_TEMP/android-ndk.zip" -d "$RUNNER_TEMP"
+          echo "ANDROID_NDK_ROOT=$RUNNER_TEMP/android-ndk-r29" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$RUNNER_TEMP/android-ndk-r29" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK=$RUNNER_TEMP/android-ndk-r29" >> "$GITHUB_ENV"
+
+      - name: Fetch pinned Frida source and patch Gum
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --branch "$FRIDA_VERSION" --depth 1 --recurse-submodules --shallow-submodules https://github.com/frida/frida.git "$RUNNER_TEMP/frida"
+          cd "$RUNNER_TEMP/frida"
+          test "$(git rev-parse HEAD)" = adf8be5f5b7f3840521783b628a191b62d7e6f66
+          git -C subprojects/frida-gum apply --check "$GITHUB_WORKSPACE/custom-patches/frida-gum-17.24.3.patch"
+          git -C subprojects/frida-gum apply "$GITHUB_WORKSPACE/custom-patches/frida-gum-17.24.3.patch"
+
+      - name: Build Android SDK using patched GLib
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/frida"
+          python -c 'import tomllib, os; p=tomllib.load(open("releng/deps.toml", "rb")); assert p["glib"]["version"] == os.environ["GLIB_COMMIT"]'
+          mkdir -p deps/src/glib
+          git -C deps/src/glib init
+          git -C deps/src/glib remote add origin https://github.com/frida/glib.git
+          git -C deps/src/glib fetch --depth 1 origin "$GLIB_COMMIT"
+          git -C deps/src/glib checkout --detach FETCH_HEAD
+          git -C deps/src/glib submodule update --init --recursive --depth 1
+          git -C deps/src/glib apply --check "$GITHUB_WORKSPACE/custom-patches/glib-17.24.3.patch"
+          git -C deps/src/glib apply "$GITHUB_WORKSPACE/custom-patches/glib-17.24.3.patch"
+          python releng/deps.py build --bundle=sdk --host=android-arm64
+          test -s deps/sdk-android-arm64.tar.xz
+          python "$GITHUB_WORKSPACE/custom-patches/verify-sdk.py" deps/sdk-android-arm64.tar.xz
+
+      - name: Build server and gadget
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/frida"
+          ./configure --prefix="$PWD/build" --host=android-arm64 --enable-frida-tools --enable-gadget --enable-server --enable-portal -- -Dfrida-gum:devkits=gum,gumjs -Dfrida-core:devkits=core
+          test -f deps/sdk-android-arm64/VERSION.txt
+          python "$GITHUB_WORKSPACE/custom-patches/verify-sdk.py" deps/sdk-android-arm64
+          make
+          mkdir -p "$RUNNER_TEMP/custom-output"
+          cp build/subprojects/frida-core/server/frida-server "$RUNNER_TEMP/custom-output/frida-server-17.24.3-android-arm64"
+          cp build/subprojects/frida-core/lib/gadget/frida-gadget.so "$RUNNER_TEMP/custom-output/frida-gadget-17.24.3-android-arm64.so"
+          cd "$RUNNER_TEMP/custom-output"
+          sha256sum frida-* > SHA256SUMS
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: custom-frida-17.24.3-android-arm64
+          path: ${{ runner.temp }}/custom-output/*
+          if-no-files-found: error
+          retention-days: 7
