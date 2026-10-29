@@ -42,6 +42,7 @@ jobs:
           curl -fsSL -o "$RUNNER_TEMP/android-ndk.zip" https://dl.google.com/android/repository/android-ndk-r29-linux.zip
           echo '87e2bb7e9be5d6a1c6cdf5ec40dd4e0c6d07c30b  '"$RUNNER_TEMP/android-ndk.zip" | sha1sum -c -
           unzip -q "$RUNNER_TEMP/android-ndk.zip" -d "$RUNNER_TEMP"
+          rm "$RUNNER_TEMP/android-ndk.zip"
           echo "ANDROID_NDK_ROOT=$RUNNER_TEMP/android-ndk-r29" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$RUNNER_TEMP/android-ndk-r29" >> "$GITHUB_ENV"
           echo "ANDROID_NDK=$RUNNER_TEMP/android-ndk-r29" >> "$GITHUB_ENV"
@@ -62,6 +63,8 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/frida"
           python -c 'import tomllib, os; p=tomllib.load(open("releng/deps.toml", "rb")); assert p["glib"]["version"] == os.environ["GLIB_COMMIT"]'
+          # Fetch the matching upstream SDK before creating our partial SDK archive.
+          python releng/deps.py sync sdk android-arm64 deps/sdk-android-arm64
           mkdir -p deps/src/glib
           git -C deps/src/glib init
           git -C deps/src/glib remote add origin https://github.com/frida/glib.git
@@ -70,16 +73,21 @@ jobs:
           git -C deps/src/glib submodule update --init --recursive --depth 1
           git -C deps/src/glib apply --check "$GITHUB_WORKSPACE/custom-patches/glib-17.24.3.patch"
           git -C deps/src/glib apply "$GITHUB_WORKSPACE/custom-patches/glib-17.24.3.patch"
-          python releng/deps.py build --bundle=sdk --host=android-arm64 --verbose
+          python releng/deps.py build --bundle=sdk --host=android-arm64 --only=glib --verbose
           test -s deps/sdk-android-arm64.tar.xz
           python "$GITHUB_WORKSPACE/custom-patches/verify-sdk.py" deps/sdk-android-arm64.tar.xz
+          python "$GITHUB_WORKSPACE/custom-patches/overlay-glib.py" deps/sdk-android-arm64.tar.xz deps/sdk-android-arm64
+          python "$GITHUB_WORKSPACE/custom-patches/verify-sdk.py" deps/sdk-android-arm64
+          # The packaged SDK no longer needs the intermediate source and object files.
+          rm -rf -- deps/src
+          df -h "$RUNNER_TEMP"
 
       - name: Build server and gadget
         shell: bash
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/frida"
-          ./configure --prefix="$PWD/build" --host=android-arm64 --enable-frida-tools --enable-gadget --enable-server --enable-portal -- -Dfrida-gum:devkits=gum,gumjs -Dfrida-core:devkits=core
+          ./configure --prefix="$PWD/build" --host=android-arm64 --disable-frida-tools --enable-gadget --enable-server --disable-portal --disable-inject
           test -f deps/sdk-android-arm64/VERSION.txt
           python "$GITHUB_WORKSPACE/custom-patches/verify-sdk.py" deps/sdk-android-arm64
           make
