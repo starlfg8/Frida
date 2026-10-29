@@ -87,7 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/frida"
-          ./configure --prefix="$PWD/build" --host=android-arm64 --disable-frida-tools --enable-gadget --enable-server --disable-portal --disable-inject
+          ./configure --prefix="$PWD/build" --host=android-arm64 --disable-frida-tools --enable-gadget --enable-server --disable-inject
           test -f deps/sdk-android-arm64/VERSION.txt
           python "$GITHUB_WORKSPACE/custom-patches/verify-sdk.py" deps/sdk-android-arm64
           make
